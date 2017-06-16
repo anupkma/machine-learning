@@ -1,0 +1,141 @@
+---
+title: "Apartment Water Consumption Prediction Model"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+#Frame
+
+Our apartment Complex has implemented individual water meters for all apartments since last two years. This has led to a lot of savings in cumulative water bill of the apartment complex since now each apartment resident can track his consumption clearly.  This is a marked difference from the earlier mechanism, where in the absence of indivdual readings the total bill supplied by the vendor was divided equally among all the apartments.
+
+One of the common questions asked by interested tenants is the approx water bill they would incur in case they rent an apartment in our complex.
+
+Can we predict approx water consumption for an interested party given some parameters about them?
+
+# Acquire
+
+Data for a typical month was provided by the manager of our apartment complex.  August last year was taken as a typical month (a lot of other months had vacations and other variations).  This data was formatted using excel (removing names of people) and saved as a csv file. Apartment complex has 72 apartments.
+
+
+```{r Acquire}
+#getwd()
+water_consumption=read.csv("Apartment_water_consumption.csv",stringsAsFactors = FALSE)
+str(water_consumption)
+
+```
+# Refine and Transform
+
+1. Remove unwanted columns (We don't need columns like Sl no and Apartment No)
+```{r }
+water_consumption_cleaned=water_consumption[3:9]
+str(water_consumption_cleaned)
+```
+2. Rename columns
+```{r }
+colnames(water_consumption_cleaned)=c("Resident_status","Family_Status",
+                                      "Number_Adults","Number_Children","Number_Toilet","Area_of_apt","Water_Consumption") 
+        
+```
+3. Change the data types (Change a few columns to factors)
+
+```{r }
+water_consumption_cleaned$Resident_status <- as.factor(water_consumption_cleaned$Resident_status)
+water_consumption_cleaned$Family_Status <- as.factor(water_consumption_cleaned$Family_Status)
+water_consumption_cleaned$Number_Toilet <- as.factor(water_consumption_cleaned$Number_Toilet)
+str(water_consumption_cleaned)
+```
+4. Remove NA and Blanks. This will also remove the last three rows which are not apartments, but clubhouse, common area etc for which there are separate water meters.
+```{r}
+
+table(water_consumption_cleaned$Family_Status, useNA = "ifany")
+water_consumption_cleaned=water_consumption_cleaned[complete.cases(water_consumption_cleaned),]
+table(water_consumption_cleaned$Family_Status, useNA = "ifany")
+str(water_consumption_cleaned)
+
+```
+#Explore
+```{r}
+library(ggplot2)
+boxplot(water_consumption_cleaned$Water_Consumption~water_consumption_cleaned$Area_of_apt)
+# We can clearly make out an outlier for an apartment for area 1255
+
+qplot(Number_Adults, Water_Consumption, data=water_consumption_cleaned, shape=Number_Toilet, color=Number_Toilet, 
+   facets=Family_Status~Resident_status, size=I(3),
+   xlab="Number_Adults", ylab="Water_Consumption") 
+```
+
+#Model
+
+```{r warning=FALSE}
+# We will use five different models and do a comparison to get the best model
+library(caret)
+set.seed(5000)
+# Multiple linear regression. We are taking the log of Water_Consumption as the relation between that and several variables are non -linear
+m1 <- train(log(Water_Consumption) ~ ., data = water_consumption_cleaned, method = "lm")
+# Regression Tree
+m2 <-train(Water_Consumption ~ ., data = water_consumption_cleaned, method = "rpart", metric="Rsquared")
+# Model Tree
+m3 <-train(Water_Consumption ~ ., data = water_consumption_cleaned, method = "M5",metric="Rsquared")
+# Random Forest
+m4 <-train(Water_Consumption ~ ., data = water_consumption_cleaned, method = "rf",metric="Rsquared")
+
+# Compare the models based on maximum R-Squared
+RSquared_Linear_Regression=m1$results[which.max(m1$results$Rsquared),]["Rsquared"]
+RSquared_Reg_Tree=m2$results[which.max(m2$results$Rsquared),]["Rsquared"]
+RSquared_Model_Tree=m3$results[which.max(m3$results$Rsquared),]["Rsquared"]
+RSquared_Random_Forest=m4$results[which.max(m4$results$Rsquared),]["Rsquared"]
+
+library(data.table)
+
+DT = data.table(ID = c("Linear_Reg","Reg_Tree","Model_Tree","Random_Forest"), R_Squared=c(RSquared_Linear_Regression,RSquared_Reg_Tree,RSquared_Model_Tree,RSquared_Random_Forest))
+
+print(as.matrix(DT))
+
+#From the R-Squared Table for the 4 models we can see that Linear_regression has the highest R-Squared. #However it is still low at approx 37%. Can we improve it. recall that from the visualiazation we did #during explore phase we found a big outlier. Can that be causing an issue? Let us remove that and try
+
+water_consumption_cleaned_removed=water_consumption_cleaned[-which.max(water_consumption_cleaned$Water_Consumption),]
+
+set.seed(5000)
+# Multiple linear regression. We are taking the log of Water_Consumption as the relation between that and several variables are non -linear
+m11 <- train(log(Water_Consumption) ~ ., data = water_consumption_cleaned_removed, method = "lm")
+# Regression Tree
+m21 <-train(Water_Consumption ~ ., data = water_consumption_cleaned_removed, method = "rpart", metric="Rsquared")
+# Model Tree
+m31 <-train(Water_Consumption ~ ., data = water_consumption_cleaned_removed, method = "M5",metric="Rsquared")
+# Random Forest
+m41 <-train(Water_Consumption ~ ., data = water_consumption_cleaned_removed, method = "rf",metric="Rsquared")
+
+# Compare the models based on maximum R-Squared
+RSquared_Linear_Regression_2=m11$results[which.max(m11$results$Rsquared),]["Rsquared"]
+RSquared_Reg_Tree_2=m21$results[which.max(m21$results$Rsquared),]["Rsquared"]
+RSquared_Model_Tree_2=m31$results[which.max(m31$results$Rsquared),]["Rsquared"]
+RSquared_Random_Forest_2=m41$results[which.max(m41$results$Rsquared),]["Rsquared"]
+
+DT2 = data.table(ID = c("Linear_Reg","Reg_Tree","Model_Tree","Random_Forest"), R_Squared=c(RSquared_Linear_Regression_2,RSquared_Reg_Tree_2,RSquared_Model_Tree_2,RSquared_Random_Forest_2))
+
+print(as.matrix(DT2))
+
+# There is some improvement with R-Squared of regression now above 41%
+
+```
+#Communicate
+What could be the approximate consumption of a new interested tenant with the follwing characteristics.
+Family of three (2 adults, 1 kid) , trying to rent a two bedroom apartment of area 1210 sqft
+
+
+
+```{r, warning=FALSE}
+newdata = data.frame(Area_of_apt=as.integer(1210),Number_Toilet=factor(2),Number_Adults=as.integer(2),
+                     Number_Children=as.integer(1),
+                     Family_Status="Yes",Resident_status="Tenant")
+Predicted_Water_consumption=exp(predict(m11,newdata,interval="predict"))
+
+#Predicted Monthly Consumption in liters
+
+print(Predicted_Water_consumption)
+
+```
+#Insights
+
+The R-Squared value is not very high.  And we need to test this on lot of test data to see the effectiveness of the prediction.  Additional predictors like WashingMachine, Reverse_Osmosis_Filter(which wastes lot of water) could be added. Still our model can give a useful indicator as to the approximate usage of monthly water.
